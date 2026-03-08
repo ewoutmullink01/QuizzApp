@@ -12,6 +12,7 @@ import com.example.demo.service.dto.QuizResponse;
 import com.example.demo.util.HtmlDecodeUtil;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -41,7 +42,8 @@ public class TriviaService {
         Map<String, String> correctAnswersByQuestionId = new HashMap<>();
         List<QuestionResponse> questions = buildQuestions(apiResponse.results(), correctAnswersByQuestionId);
 
-        storeCorrectAnswers(quizId, correctAnswersByQuestionId);
+        QuizSession session = createQuizSession(quizId, questions, correctAnswersByQuestionId);
+        storeQuizSession(session);
 
         return new QuizResponse(quizId, questions);
     }
@@ -142,8 +144,16 @@ public class TriviaService {
         Collections.shuffle(options);
     }
 
-    private void storeCorrectAnswers(String quizId, Map<String, String> correctAnswersByQuestionId) {
-        cache.putQuiz(quizId, correctAnswersByQuestionId);
+    private QuizSession createQuizSession(
+            String quizId,
+            List<QuestionResponse> questions,
+            Map<String, String> correctAnswersByQuestionId
+    ) {
+        return new QuizSession(quizId, questions, correctAnswersByQuestionId);
+    }
+
+    private void storeQuizSession(QuizSession session) {
+        cache.putSession(session);
     }
 
     private boolean quizDoesNotExist(String quizId) {

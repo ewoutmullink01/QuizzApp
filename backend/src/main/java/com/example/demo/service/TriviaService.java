@@ -1,7 +1,9 @@
 package com.example.demo.service;
 
 import com.example.demo.integration.OpenTriviaClient;
+import com.example.demo.integration.dto.OpenTriviaApiResponse;
 import com.example.demo.integration.dto.OpenTriviaQuestion;
+import com.example.demo.service.dto.AnswerRequest;
 import com.example.demo.service.dto.AnswerResult;
 import com.example.demo.service.dto.CheckAnswersBatchRequest;
 import com.example.demo.service.dto.CheckAnswersBatchResponse;
@@ -20,48 +22,39 @@ import java.util.UUID;
 @Service
 public class TriviaService {
 
-    private final OpenTriviaClient openTriviaClient;
+    private final OpenTriviaClient triviaClient;
     private final TriviaQuestionCache cache;
 
-    public TriviaService(OpenTriviaClient openTriviaClient, TriviaQuestionCache cache) {
-        this.openTriviaClient = openTriviaClient;
+    public TriviaService(OpenTriviaClient triviaClient, TriviaQuestionCache cache) {
+        this.triviaClient = triviaClient;
         this.cache = cache;
     }
 
     public QuizResponse getQuiz(int amount) {
-        var apiResponse = openTriviaClient.fetchQuestions(amount);
+        var apiResponse = triviaClient.fetchQuestions(amount);
 
-        if (apiResponse == null || apiResponse.results() == null || apiResponse.results().isEmpty()) {
-            return emptyQuizResponse();
+        if (hasNoQuestions(apiResponse)) {
+            return createEmptyQuiz();
         }
 
-        String quizId = UUID.randomUUID().toString();
+        String quizId = newQuizId();
         Map<String, String> correctAnswersByQuestionId = new HashMap<>();
-        List<QuestionResponse> questions = new ArrayList<>();
+        List<QuestionResponse> questions = buildQuestions(apiResponse.results(), correctAnswersByQuestionId);
 
-        for (OpenTriviaQuestion question : apiResponse.results()) {
-            QuestionResponse questionResponse = toQuestionResponse(question, correctAnswersByQuestionId);
-            questions.add(questionResponse);
-        }
+        storeCorrectAnswers(quizId, correctAnswersByQuestionId);
 
-        cache.putQuiz(quizId, correctAnswersByQuestionId);
         return new QuizResponse(quizId, questions);
     }
 
     public CheckAnswersBatchResponse checkAnswers(CheckAnswersBatchRequest request) {
-        if (!cache.quizExists(request.quizId())) {
+        if (quizDoesNotExist(request.quizId())) {
             return createMissingQuizResponse(request);
         }
 
-        List<AnswerResult> results = request.answers().stream()
-                .map(answer -> toAnswerResult(request.quizId(), answer.questionId(), answer.selectedAnswer()))
-                .toList();
+        List<AnswerResult> results = evaluateAnswers(request);
+        int score = calculateScore(results);
 
-        int score = (int) results.stream()
-                .filter(AnswerResult::correct)
-                .count();
-
-        cache.removeQuiz(request.quizId());
+        removeQuizFromCache(request.quizId());
 
         return new CheckAnswersBatchResponse(
                 request.quizId(),
@@ -71,49 +64,94 @@ public class TriviaService {
         );
     }
 
-    private QuizResponse emptyQuizResponse() {
-        return new QuizResponse(UUID.randomUUID().toString(), List.of());
+    private boolean hasNoQuestions(OpenTriviaApiResponse response) {
+        return response == null || response.results() == null || response.results().isEmpty();
     }
 
-    private QuestionResponse toQuestionResponse(
-            OpenTriviaQuestion question,
+    private QuizResponse createEmptyQuiz() {
+        return new QuizResponse(newQuizId(), List.of());
+    }
+
+    private String newQuizId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private String newQuestionId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private List<QuestionResponse> buildQuestions(
+            List<OpenTriviaQuestion> openTriviaQuestions,
             Map<String, String> correctAnswersByQuestionId
     ) {
-        String questionId = UUID.randomUUID().toString();
-        String correctAnswer = decode(question.correct_answer());
+        List<QuestionResponse> questions = new ArrayList<>();
 
-        correctAnswersByQuestionId.put(questionId, correctAnswer);
+        for (OpenTriviaQuestion openTriviaQuestion : openTriviaQuestions) {
+            questions.add(buildQuestion(openTriviaQuestion, correctAnswersByQuestionId));
+        }
 
-        List<String> options = buildShuffledOptions(correctAnswer, question.incorrect_answers());
+        return questions;
+    }
+
+    private QuestionResponse buildQuestion(
+            OpenTriviaQuestion openTriviaQuestion,
+            Map<String, String> correctAnswersByQuestionId
+    ) {
+        String questionId = newQuestionId();
+        String correctAnswer = decode(openTriviaQuestion.correct_answer());
+
+        rememberCorrectAnswer(correctAnswersByQuestionId, questionId, correctAnswer);
 
         return new QuestionResponse(
                 questionId,
-                decode(question.category()),
-                decode(question.difficulty()),
-                decode(question.type()),
-                decode(question.question()),
-                options
+                decode(openTriviaQuestion.category()),
+                decode(openTriviaQuestion.difficulty()),
+                decode(openTriviaQuestion.type()),
+                decode(openTriviaQuestion.question()),
+                buildOptions(correctAnswer, openTriviaQuestion.incorrect_answers())
         );
     }
 
-    private List<String> buildShuffledOptions(String correctAnswer, List<String> incorrectAnswers) {
+    private void rememberCorrectAnswer(
+            Map<String, String> correctAnswersByQuestionId,
+            String questionId,
+            String correctAnswer
+    ) {
+        correctAnswersByQuestionId.put(questionId, correctAnswer);
+    }
+
+    private List<String> buildOptions(String correctAnswer, List<String> incorrectAnswers) {
         List<String> options = new ArrayList<>();
         options.add(correctAnswer);
-
-        if (incorrectAnswers != null) {
-            for (String incorrectAnswer : incorrectAnswers) {
-                options.add(decode(incorrectAnswer));
-            }
-        }
-
-        Collections.shuffle(options);
+        addIncorrectAnswers(options, incorrectAnswers);
+        shuffle(options);
         return options;
     }
 
+    private void addIncorrectAnswers(List<String> options, List<String> incorrectAnswers) {
+        if (incorrectAnswers == null) {
+            return;
+        }
+
+        for (String incorrectAnswer : incorrectAnswers) {
+            options.add(decode(incorrectAnswer));
+        }
+    }
+
+    private void shuffle(List<String> options) {
+        Collections.shuffle(options);
+    }
+
+    private void storeCorrectAnswers(String quizId, Map<String, String> correctAnswersByQuestionId) {
+        cache.putQuiz(quizId, correctAnswersByQuestionId);
+    }
+
+    private boolean quizDoesNotExist(String quizId) {
+        return !cache.quizExists(quizId);
+    }
+
     private CheckAnswersBatchResponse createMissingQuizResponse(CheckAnswersBatchRequest request) {
-        List<AnswerResult> results = request.answers().stream()
-                .map(answer -> new AnswerResult(answer.questionId(), false, null))
-                .toList();
+        List<AnswerResult> results = createIncorrectResultsWithoutCorrectAnswer(request.answers());
 
         return new CheckAnswersBatchResponse(
                 request.quizId(),
@@ -123,11 +161,45 @@ public class TriviaService {
         );
     }
 
-    private AnswerResult toAnswerResult(String quizId, String questionId, String selectedAnswer) {
-        String correctAnswer = cache.getCorrectAnswer(quizId, questionId).orElse(null);
-        boolean isCorrect = correctAnswer != null && correctAnswer.equals(selectedAnswer);
+    private List<AnswerResult> createIncorrectResultsWithoutCorrectAnswer(List<AnswerRequest> answers) {
+        return answers.stream()
+                .map(answer -> new AnswerResult(answer.questionId(), false, null))
+                .toList();
+    }
 
-        return new AnswerResult(questionId, isCorrect, correctAnswer);
+    private List<AnswerResult> evaluateAnswers(CheckAnswersBatchRequest request) {
+        return request.answers().stream()
+                .map(answer -> evaluateAnswer(request.quizId(), answer))
+                .toList();
+    }
+
+    private AnswerResult evaluateAnswer(String quizId, AnswerRequest answer) {
+        String correctAnswer = findCorrectAnswer(quizId, answer.questionId());
+        boolean correct = isCorrectAnswer(correctAnswer, answer.selectedAnswer());
+
+        return new AnswerResult(
+                answer.questionId(),
+                correct,
+                correctAnswer
+        );
+    }
+
+    private String findCorrectAnswer(String quizId, String questionId) {
+        return cache.getCorrectAnswer(quizId, questionId).orElse(null);
+    }
+
+    private boolean isCorrectAnswer(String correctAnswer, String selectedAnswer) {
+        return correctAnswer != null && correctAnswer.equals(selectedAnswer);
+    }
+
+    private int calculateScore(List<AnswerResult> results) {
+        return (int) results.stream()
+                .filter(AnswerResult::correct)
+                .count();
+    }
+
+    private void removeQuizFromCache(String quizId) {
+        cache.removeQuiz(quizId);
     }
 
     private String decode(String value) {

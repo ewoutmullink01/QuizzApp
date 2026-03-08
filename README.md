@@ -39,9 +39,11 @@
 
 ##### 
 
-##### cd backend
+```bash
+cd backend
+./gradlew bootRun
+```
 
-##### ./gradlew bootRun
 
 ##### 
 
@@ -63,11 +65,12 @@
 
 ##### 
 
-##### cd frontend
+```bash
+cd frontend
+npm install
+npm start
+```
 
-##### npm install
-
-##### npm start
 
 ##### 
 

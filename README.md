@@ -11,7 +11,7 @@
 
 ##### Voor lokaal draaien 
 
-##### \- Node.js (LTS is prima)
+##### \- Node.js
 
 ##### \- npm
 

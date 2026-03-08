@@ -2,12 +2,20 @@ package com.example.demo.service;
 
 import com.example.demo.integration.OpenTriviaClient;
 import com.example.demo.integration.dto.OpenTriviaQuestion;
+import com.example.demo.service.dto.AnswerResult;
+import com.example.demo.service.dto.CheckAnswersBatchRequest;
+import com.example.demo.service.dto.CheckAnswersBatchResponse;
 import com.example.demo.service.dto.QuestionResponse;
+import com.example.demo.service.dto.QuizResponse;
 import com.example.demo.util.HtmlDecodeUtil;
 import org.springframework.stereotype.Service;
-import com.example.demo.service.dto.*;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class TriviaService {
@@ -22,69 +30,107 @@ public class TriviaService {
 
     public QuizResponse getQuiz(int amount) {
         var apiResponse = openTriviaClient.fetchQuestions(amount);
+
         if (apiResponse == null || apiResponse.results() == null || apiResponse.results().isEmpty()) {
-            return new QuizResponse(UUID.randomUUID().toString(), List.of());
+            return emptyQuizResponse();
         }
 
         String quizId = UUID.randomUUID().toString();
-
-        Map<String, String> questionToCorrect = new HashMap<>();
+        Map<String, String> correctAnswersByQuestionId = new HashMap<>();
         List<QuestionResponse> questions = new ArrayList<>();
 
-        for (OpenTriviaQuestion q : apiResponse.results()) {
-            String questionId = UUID.randomUUID().toString();
-
-            String correct = HtmlDecodeUtil.decode(q.correct_answer());
-            questionToCorrect.put(questionId, correct);
-
-            List<String> options = new ArrayList<>();
-            options.add(correct);
-
-            if (q.incorrect_answers() != null) {
-                for (String ia : q.incorrect_answers()) {
-                    options.add(HtmlDecodeUtil.decode(ia));
-                }
-            }
-            Collections.shuffle(options);
-
-            questions.add(new QuestionResponse(
-                    questionId,
-                    HtmlDecodeUtil.decode(q.category()),
-                    HtmlDecodeUtil.decode(q.difficulty()),
-                    HtmlDecodeUtil.decode(q.type()),
-                    HtmlDecodeUtil.decode(q.question()),
-                    options
-            ));
+        for (OpenTriviaQuestion question : apiResponse.results()) {
+            QuestionResponse questionResponse = toQuestionResponse(question, correctAnswersByQuestionId);
+            questions.add(questionResponse);
         }
 
-        cache.putQuiz(quizId, questionToCorrect);
+        cache.putQuiz(quizId, correctAnswersByQuestionId);
         return new QuizResponse(quizId, questions);
     }
 
-    public CheckAnswersBatchResponse checkAnswers(CheckAnswersBatchRequest req) {
-        if (!cache.quizExists(req.quizId())) {
-            List<AnswerResult> results = req.answers().stream()
-                    .map(a -> new AnswerResult(a.questionId(), false, null))
-                    .toList();
-
-            return new CheckAnswersBatchResponse(req.quizId(), 0, results.size(), results);
+    public CheckAnswersBatchResponse checkAnswers(CheckAnswersBatchRequest request) {
+        if (!cache.quizExists(request.quizId())) {
+            return createMissingQuizResponse(request);
         }
 
-        List<AnswerResult> results = req.answers().stream()
-                .map(a -> {
-                    String correctAnswer = cache.getCorrectAnswer(req.quizId(), a.questionId())
-                            .orElse(null);
-
-                    boolean correct = correctAnswer != null && correctAnswer.equals(a.selectedAnswer());
-
-                    return new AnswerResult(a.questionId(), correct, correctAnswer);
-                })
+        List<AnswerResult> results = request.answers().stream()
+                .map(answer -> toAnswerResult(request.quizId(), answer.questionId(), answer.selectedAnswer()))
                 .toList();
 
-        int score = (int) results.stream().filter(AnswerResult::correct).count();
+        int score = (int) results.stream()
+                .filter(AnswerResult::correct)
+                .count();
 
-        cache.removeQuiz(req.quizId());
+        cache.removeQuiz(request.quizId());
 
-        return new CheckAnswersBatchResponse(req.quizId(), score, results.size(), results);
+        return new CheckAnswersBatchResponse(
+                request.quizId(),
+                score,
+                results.size(),
+                results
+        );
+    }
+
+    private QuizResponse emptyQuizResponse() {
+        return new QuizResponse(UUID.randomUUID().toString(), List.of());
+    }
+
+    private QuestionResponse toQuestionResponse(
+            OpenTriviaQuestion question,
+            Map<String, String> correctAnswersByQuestionId
+    ) {
+        String questionId = UUID.randomUUID().toString();
+        String correctAnswer = decode(question.correct_answer());
+
+        correctAnswersByQuestionId.put(questionId, correctAnswer);
+
+        List<String> options = buildShuffledOptions(correctAnswer, question.incorrect_answers());
+
+        return new QuestionResponse(
+                questionId,
+                decode(question.category()),
+                decode(question.difficulty()),
+                decode(question.type()),
+                decode(question.question()),
+                options
+        );
+    }
+
+    private List<String> buildShuffledOptions(String correctAnswer, List<String> incorrectAnswers) {
+        List<String> options = new ArrayList<>();
+        options.add(correctAnswer);
+
+        if (incorrectAnswers != null) {
+            for (String incorrectAnswer : incorrectAnswers) {
+                options.add(decode(incorrectAnswer));
+            }
+        }
+
+        Collections.shuffle(options);
+        return options;
+    }
+
+    private CheckAnswersBatchResponse createMissingQuizResponse(CheckAnswersBatchRequest request) {
+        List<AnswerResult> results = request.answers().stream()
+                .map(answer -> new AnswerResult(answer.questionId(), false, null))
+                .toList();
+
+        return new CheckAnswersBatchResponse(
+                request.quizId(),
+                0,
+                results.size(),
+                results
+        );
+    }
+
+    private AnswerResult toAnswerResult(String quizId, String questionId, String selectedAnswer) {
+        String correctAnswer = cache.getCorrectAnswer(quizId, questionId).orElse(null);
+        boolean isCorrect = correctAnswer != null && correctAnswer.equals(selectedAnswer);
+
+        return new AnswerResult(questionId, isCorrect, correctAnswer);
+    }
+
+    private String decode(String value) {
+        return HtmlDecodeUtil.decode(value);
     }
 }

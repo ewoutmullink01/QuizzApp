@@ -4,19 +4,14 @@
 
 ##### \- een Spring Boot backend
 
-##### 
-
-##### Als je snel wilt beginnen, volg dan eerst de lokale setup hieronder. Daarna staat ook de Docker-manier uitgelegd.
-
-##### 
 
 ##### Wat heb je nodig?
 
 ##### 
 
-##### Voor lokaal draaien (zonder Docker)
+##### Voor lokaal draaien 
 
-##### \- Node.js (LTS is prima)
+##### \- Node.js
 
 ##### \- npm
 
@@ -44,9 +39,11 @@
 
 ##### 
 
-##### cd backend
+```bash
+cd backend
+./gradlew bootRun
+```
 
-##### ./gradlew bootRun
 
 ##### 
 
@@ -68,11 +65,12 @@
 
 ##### 
 
-##### cd frontend
+```bash
+cd frontend
+npm install
+ng serve
+```
 
-##### npm install
-
-##### npm start
 
 ##### 
 

@@ -68,7 +68,7 @@ cd backend
 ```bash
 cd frontend
 npm install
-npm start
+ng serve
 ```
 
 

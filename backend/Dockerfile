@@ -1,10 +1,10 @@
-FROM gradle:8.14.3-jdk25 AS build
+FROM gradle:jdk21 AS build
 WORKDIR /app
 
-COPY src/main/java/com/example/demo .
+COPY . .
 RUN gradle bootJar --no-daemon
 
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 COPY --from=build /app/build/libs/*.jar app.jar

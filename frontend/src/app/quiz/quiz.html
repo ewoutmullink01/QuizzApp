@@ -1,0 +1,121 @@
+<div class="page">
+  <header class="top">
+    <div>
+      <h1 class="title">Quiz</h1>
+      <p class="sub">Beantwoord alle vragen en submit.</p>
+    </div>
+
+    <button class="btn btn-back" (click)="goBack()">
+      Terug
+    </button>
+  </header>
+
+  @if (vm().error) {
+    <p class="error">{{ vm().error }}</p>
+  }
+
+  @if (vm().questions.length === 0) {
+    <p class="hint">Klik op “Nieuwe quiz”.</p>
+  }
+
+  @if (vm().status === 'loading') {
+    <p class="hint">Laden...</p>
+  }
+
+  @if (vm().result; as r) {
+    <section class="result">
+      <div class="card">
+        <h2>Resultaat</h2>
+        <p class="score">Score: <b>{{ r.score }}</b> / {{ r.total }}</p>
+      </div>
+    </section>
+  }
+
+  @if (vm().questions.length > 0) {
+    <section class="list">
+      @for (q of vm().questions; track q.questionId; let i = $index) {
+
+        @let hasResult = (vm().result !== null);
+        @let correct = resultByQuestionId()[q.questionId];
+
+        <article class="card"
+                 [class.card-correct]="hasResult && correct === true"
+                 [class.card-wrong]="hasResult && correct === false">
+
+          <div class="row">
+            <div class="meta">
+              <span>#{{ i + 1 }}</span>
+              <span class="dot">•</span>
+              <span>{{ q.category }}</span>
+              <span class="dot">•</span>
+              <span>{{ q.difficulty }}</span>
+            </div>
+
+            @if (hasResult) {
+              <span class="badge" [class.badge-ok]="correct === true" [class.badge-bad]="correct === false">
+              {{ correct === true ? 'Goed' : 'Fout' }}
+            </span>
+            }
+          </div>
+
+          <h3 class="question">{{ q.question }}</h3>
+
+          <div class="options">
+            @for (opt of q.options; track opt) {
+
+              @let isSelected = (vm().selected[q.questionId] === opt);
+              @let correctAnswer = correctAnswerByQuestionId()[q.questionId];
+
+              <label class="opt"
+                     [class.opt-selected]="isSelected"
+                     [class.opt-correct]="hasResult && correctAnswer === opt"
+                     [class.opt-wrong]="hasResult && isSelected && correct === false">
+
+                <input
+                  type="radio"
+                  [name]="q.questionId"
+                  [checked]="isSelected"
+                  [disabled]="isLocked()"
+                  (change)="selectAnswer(q.questionId, opt)"
+                />
+                <span>{{ opt }}</span>
+              </label>
+            }
+          </div>
+        </article>
+      }
+    </section>
+  }
+
+  @if (vm().questions.length > 0 && !vm().result) {
+    <footer class="footer">
+      <button
+        class="btn btn-primary"
+        (click)="submit()"
+        [disabled]="submitDisabled()"
+      >
+        Submit
+      </button>
+      @if (!allAnswered()) {
+        <p class="hint">Beantwoord alle vragen om te kunnen submitten.</p>
+      }
+    </footer>
+  }
+
+  @if (vm().result) {
+    <footer class="footer">
+
+      <button
+        class="btn btn-primary"
+        (click)="load(5)"
+      >
+        Opnieuw
+      </button>
+
+    </footer>
+  }
+</div>
+
+
+
+
